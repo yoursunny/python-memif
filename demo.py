@@ -7,8 +7,12 @@ spec = importlib.util.spec_from_file_location(
 memif = importlib.util.module_from_spec(spec)
 
 
+def rx(b: bytes) -> None:
+    print(b.hex())
+
+
 m = memif.NativeMemif(str(sys.argv[1]), int(
-    sys.argv[2]), bool(int(sys.argv[3])))
+    sys.argv[2]), bool(int(sys.argv[3])), rx)
 for i in range(100):
     m.poll()
     time.sleep(0.1)

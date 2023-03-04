@@ -19,6 +19,7 @@ typedef struct
 {
   PyObject_HEAD memif_socket_handle_t sock;
   memif_conn_handle_t conn;
+  PyObject* rx;
   bool isUp;
 } NativeMemif;
 
@@ -65,6 +66,9 @@ NativeMemif_handleInterrupt(memif_conn_handle_t conn, void* self0, uint16_t qid)
   for (uint16_t i = 0; i < nRx; ++i) {
     const memif_buffer_t* b = &burst[i];
     PYMEMIF_LOG("RX %" PRIu32, b->len);
+    PyObject* args = Py_BuildValue("(y#)", b->data, b->len);
+    PyObject_CallObject(self->rx, args);
+    Py_DECREF(args);
   }
 
   err = memif_refill_queue(conn, qid, nRx, 0);
@@ -93,7 +97,11 @@ NativeMemif_init(NativeMemif* self, PyObject* args, PyObject* kwds)
   static_assert(sizeof(unsigned int) == sizeof(uint32_t), "");
   uint32_t id = 0;
   int role = 0;
-  if (!PyArg_ParseTuple(args, "s#Ip", &socketName, &socketNameLen, &id, &role)) {
+  if (!PyArg_ParseTuple(args, "s#IpO", &socketName, &socketNameLen, &id, &role, &self->rx)) {
+    return -1;
+  }
+  if (!PyCallable_Check(self->rx)) {
+    PyErr_SetString(PyExc_TypeError, "rx must be callable");
     return -1;
   }
   PYMEMIF_LOG("init %s %ld %" PRIu32 " %d", socketName, socketNameLen, id, role);
@@ -120,6 +128,7 @@ NativeMemif_init(NativeMemif* self, PyObject* args, PyObject* kwds)
     return -1;
   }
 
+  Py_INCREF(self->rx);
   return 0;
 }
 
@@ -127,6 +136,7 @@ static void
 NativeMemif_dealloc(NativeMemif* self)
 {
   PYMEMIF_LOG("dealloc");
+
   if (self->conn != NULL) {
     int err = memif_delete(&self->conn);
     if (err != MEMIF_ERR_SUCCESS) {
@@ -143,6 +153,7 @@ NativeMemif_dealloc(NativeMemif* self)
     }
   }
 
+  Py_DECREF(self->rx);
   Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
@@ -169,7 +180,7 @@ NativeMemif_send(NativeMemif* self, PyObject* args)
 
   const uint8_t* pkt = NULL;
   Py_ssize_t pktLen = 0;
-  if (!PyArg_ParseTuple(args, "s#", &pkt, &pktLen)) {
+  if (!PyArg_ParseTuple(args, "y#", &pkt, &pktLen)) {
     return NULL;
   }
   PYMEMIF_LOG("send %ld", pktLen);
