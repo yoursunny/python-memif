@@ -13,6 +13,7 @@
 
 #define PYMEMIF_DATAROOM 2048
 #define PYMEMIF_RING_CAPACITY_LOG2 10
+#define PYMEMIF_RX_BURST 16
 
 typedef struct
 {
@@ -26,6 +27,13 @@ NativeMemif_handleConnect(memif_conn_handle_t conn, void* self0)
 {
   NativeMemif* self = self0;
   PYMEMIF_LOG("handleConnnect");
+  assert(self->conn == conn);
+  self->isUp = true;
+
+  int err = memif_refill_queue(conn, 0, -1, 0);
+  if (err != MEMIF_ERR_SUCCESS) {
+    PYMEMIF_LOG_ERR(memif_refill_queue);
+  }
   return 0;
 }
 
@@ -34,6 +42,8 @@ NativeMemif_handleDisconnect(memif_conn_handle_t conn, void* self0)
 {
   NativeMemif* self = self0;
   PYMEMIF_LOG("handleDisconnnect");
+  assert(self->conn == conn);
+  self->isUp = false;
   return 0;
 };
 
@@ -42,6 +52,25 @@ NativeMemif_handleInterrupt(memif_conn_handle_t conn, void* self0, uint16_t qid)
 {
   NativeMemif* self = self0;
   PYMEMIF_LOG("handleInterrupt %" PRIu16, qid);
+  assert(self->conn == conn);
+
+  memif_buffer_t burst[PYMEMIF_RX_BURST];
+  uint16_t nRx = 0;
+  int err = memif_rx_burst(conn, qid, burst, PYMEMIF_RX_BURST, &nRx);
+  if (err != MEMIF_ERR_SUCCESS) {
+    PYMEMIF_LOG_ERR(memif_rx_burst);
+    return 0;
+  }
+
+  for (uint16_t i = 0; i < nRx; ++i) {
+    const memif_buffer_t* b = &burst[i];
+    PYMEMIF_LOG("RX %" PRIu32, b->len);
+  }
+
+  err = memif_refill_queue(conn, qid, nRx, 0);
+  if (err != MEMIF_ERR_SUCCESS) {
+    PYMEMIF_LOG_ERR(memif_rx_burst);
+  }
   return 0;
 }
 
@@ -64,7 +93,9 @@ NativeMemif_init(NativeMemif* self, PyObject* args, PyObject* kwds)
   static_assert(sizeof(unsigned int) == sizeof(uint32_t), "");
   uint32_t id = 0;
   int role = 0;
-  PyArg_ParseTuple(args, "s#Ip", &socketName, &socketNameLen, &id, &role);
+  if (!PyArg_ParseTuple(args, "s#Ip", &socketName, &socketNameLen, &id, &role)) {
+    return -1;
+  }
   PYMEMIF_LOG("init %s %ld %" PRIu32 " %d", socketName, socketNameLen, id, role);
 
   memif_socket_args_t sa = { 0 };
@@ -119,18 +150,56 @@ static PyObject*
 NativeMemif_poll(NativeMemif* self, PyObject* Py_UNUSED(ignored))
 {
   if (self->sock == NULL) {
-    return Py_None;
+    Py_RETURN_NONE;
   }
 
   int err = memif_poll_event(self->sock, 0);
   if (err != MEMIF_ERR_SUCCESS) {
     PYMEMIF_LOG_ERR(memif_poll_event);
   }
-  return Py_None;
+  Py_RETURN_NONE;
+}
+
+static PyObject*
+NativeMemif_send(NativeMemif* self, PyObject* args)
+{
+  if (!self->isUp) {
+    Py_RETURN_FALSE;
+  }
+
+  const uint8_t* pkt = NULL;
+  Py_ssize_t pktLen = 0;
+  if (!PyArg_ParseTuple(args, "s#", &pkt, &pktLen)) {
+    return NULL;
+  }
+  PYMEMIF_LOG("send %ld", pktLen);
+
+  memif_buffer_t b = { 0 };
+  uint16_t nAlloc = 0;
+  int err = memif_buffer_alloc(self->conn, 0, &b, 1, &nAlloc, pktLen);
+  if (err != MEMIF_ERR_SUCCESS || nAlloc != 1) {
+    PYMEMIF_LOG_ERR(memif_buffer_alloc);
+    Py_RETURN_FALSE;
+  }
+
+  assert(b.len >= pktLen);
+  assert((b.flags & MEMIF_BUFFER_FLAG_NEXT) == 0);
+  memcpy(b.data, pkt, pktLen);
+  b.len = pktLen;
+
+  uint16_t nTx = 0;
+  err = memif_tx_burst(self->conn, 0, &b, 1, &nTx);
+  if (err != MEMIF_ERR_SUCCESS || nTx != 1) {
+    PYMEMIF_LOG_ERR(memif_tx_burst);
+    Py_RETURN_FALSE;
+  }
+  Py_RETURN_TRUE;
 }
 
 static PyMethodDef NativeMemif_methods[] = {
   { "poll", (PyCFunction)NativeMemif_poll, METH_NOARGS, "" },
+  { "send", (PyCFunction)NativeMemif_send, METH_VARARGS, "" },
+  { 0 },
 };
 
 static PyTypeObject NativeMemifType = {

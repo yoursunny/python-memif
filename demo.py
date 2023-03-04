@@ -12,4 +12,6 @@ m = memif.NativeMemif(str(sys.argv[1]), int(
 for i in range(100):
     m.poll()
     time.sleep(0.1)
+    if i % 10 == 0:
+        m.send(bytes([i] * i))
 del m
