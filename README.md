@@ -41,4 +41,11 @@ class NativeMemif:
     Packet length must not exceed dataroom.
     """
     pass
+
+  def close(self) -> None:
+    """
+    Close the memif socket.
+    """
+    pass
+
 ```

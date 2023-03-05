@@ -18,4 +18,4 @@ for i in range(100):
     time.sleep(0.1)
     if i % 10 == 0:
         m.send(bytes([i] * i))
-del m
+m.close()

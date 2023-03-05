@@ -17,7 +17,8 @@
 
 typedef struct
 {
-  PyObject_HEAD memif_socket_handle_t sock;
+  PyObject_HEAD //
+    memif_socket_handle_t sock;
   memif_conn_handle_t conn;
   PyObject* rx;
   bool isUp;
@@ -78,6 +79,30 @@ NativeMemif_handleInterrupt(memif_conn_handle_t conn, void* self0, uint16_t qid)
   return 0;
 }
 
+void
+NativeMemif_doStop(NativeMemif* self)
+{
+  self->isUp = false;
+
+  if (self->conn != NULL) {
+    int err = memif_delete(&self->conn);
+    if (err != MEMIF_ERR_SUCCESS) {
+      PYMEMIF_LOG_ERR(memif_delete);
+    } else {
+      self->conn = NULL;
+    }
+  }
+
+  if (self->sock != NULL) {
+    int err = memif_delete_socket(&self->sock);
+    if (err != MEMIF_ERR_SUCCESS) {
+      PYMEMIF_LOG_ERR(memif_delete_socket);
+    } else {
+      self->sock = NULL;
+    }
+  }
+}
+
 static PyObject*
 NativeMemif_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
 {
@@ -136,23 +161,7 @@ static void
 NativeMemif_dealloc(NativeMemif* self)
 {
   PYMEMIF_LOG("dealloc");
-
-  if (self->conn != NULL) {
-    int err = memif_delete(&self->conn);
-    if (err != MEMIF_ERR_SUCCESS) {
-      PYMEMIF_LOG_ERR(memif_delete);
-      return;
-    }
-  }
-
-  if (self->sock != NULL) {
-    int err = memif_delete_socket(&self->sock);
-    if (err != MEMIF_ERR_SUCCESS) {
-      PYMEMIF_LOG_ERR(memif_delete_socket);
-      return;
-    }
-  }
-
+  NativeMemif_doStop(self);
   Py_DECREF(self->rx);
   Py_TYPE(self)->tp_free((PyObject*)self);
 }
@@ -207,9 +216,18 @@ NativeMemif_send(NativeMemif* self, PyObject* args)
   Py_RETURN_TRUE;
 }
 
+static PyObject*
+NativeMemif_close(NativeMemif* self, PyObject* Py_UNUSED(ignored))
+{
+  PYMEMIF_LOG("close");
+  NativeMemif_doStop(self);
+  Py_RETURN_NONE;
+}
+
 static PyMethodDef NativeMemif_methods[] = {
   { "poll", (PyCFunction)NativeMemif_poll, METH_NOARGS, "" },
   { "send", (PyCFunction)NativeMemif_send, METH_VARARGS, "" },
+  { "close", (PyCFunction)NativeMemif_close, METH_NOARGS, "" },
   { 0 },
 };
 
