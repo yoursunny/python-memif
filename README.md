@@ -15,7 +15,7 @@ ninja
 sudo ninja install
 sudo ldconfig
 
-: cd to the virtual environment where you want to install this extension
+# cd to the virtual environment where you want to install this extension
 pip install ~/python-memif
 ```
 
@@ -31,7 +31,14 @@ class NativeMemif:
     def __init__(self, socket_name: str, id: int, rx: RxCallback,
                  *, is_server=False, dataroom=2048, ring_size_log2=10):
         """
-        Construct a memif socket.
+        Construct a memif socket and interface.
+        """
+        pass
+
+    @property
+    def up(self) -> bool:
+        """
+        Return whether the interface is UP.
         """
         pass
 
@@ -41,7 +48,7 @@ class NativeMemif:
         """
         pass
 
-    def send(self, b: bytes) -> bool:
+    def send(self, b: bytes) -> None:
         """
         Transmit a packet.
         """
@@ -49,7 +56,7 @@ class NativeMemif:
 
     def close(self) -> None:
         """
-        Close the memif socket.
+        Close the memif socket and interface.
         """
         pass
 ```

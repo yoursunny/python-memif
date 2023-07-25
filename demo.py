@@ -8,7 +8,7 @@ memif = importlib.util.module_from_spec(spec)
 
 
 def rx(b: bytes, hasNext: bool) -> None:
-    print(b.hex(), hasNext)
+    print(len(b), hasNext, b[:32].hex())
 
 
 m = memif.NativeMemif(
@@ -22,5 +22,10 @@ for i in range(1000):
     m.poll()
     time.sleep(0.1)
     if i % 10 == 0:
-        m.send(bytes([i % 256] * i))
+        print(f"up={m.up}")
+    if i % 10 == 0:
+        try:
+            m.send(bytes([i % 256] * i))
+        except BrokenPipeError:
+            pass
 m.close()
