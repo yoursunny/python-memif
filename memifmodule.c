@@ -11,15 +11,15 @@
 
 #define PYMEMIF_LOG_ERR(func) PYMEMIF_LOG(#func " %d %s", err, memif_strerror(err))
 
-#define PYMEMIF_DATAROOM 2048
-#define PYMEMIF_RING_CAPACITY_LOG2 10
 #define PYMEMIF_RX_BURST 16
+#define PYMEMIF_TX_SEGS 8
 
 typedef struct {
   PyObject_HEAD
   memif_socket_handle_t sock;
   memif_conn_handle_t conn;
   PyObject* rx;
+  uint32_t dataroom;
   bool isUp;
 } NativeMemif;
 
@@ -63,7 +63,8 @@ NativeMemif_handleInterrupt(memif_conn_handle_t conn, void* self0, uint16_t qid)
   for (uint16_t i = 0; i < nRx; ++i) {
     const memif_buffer_t* b = &burst[i];
     PYMEMIF_LOG("RX %" PRIu32, b->len);
-    PyObject* args = Py_BuildValue("(y#)", b->data, b->len);
+    bool hasNext = (b->flags & MEMIF_BUFFER_FLAG_NEXT) != 0;
+    PyObject* args = Py_BuildValue("(y#O)", b->data, b->len, hasNext ? Py_True : Py_False);
     PyObject_CallObject(self->rx, args);
     Py_DECREF(args);
   }
@@ -114,15 +115,22 @@ NativeMemif_init(NativeMemif* self, PyObject* args, PyObject* kwds) {
   Py_ssize_t socketNameLen = 0;
   static_assert(sizeof(unsigned int) == sizeof(uint32_t), "");
   uint32_t id = 0;
-  int role = 0;
-  if (!PyArg_ParseTuple(args, "s#IpO", &socketName, &socketNameLen, &id, &role, &self->rx)) {
+  int isServer = 0;
+  self->dataroom = 2048;
+  uint32_t ringSizeLog2 = 10;
+  static const char* keywords[] = {
+    "socket_name", "id", "rx", "is_server", "dataroom", "ring_size_log2",
+  };
+  if (!PyArg_ParseTupleAndKeywords(args, kwds, "s#IO|$pII", (char**)keywords, &socketName,
+                                   &socketNameLen, &id, &self->rx, &isServer, &self->dataroom,
+                                   &ringSizeLog2)) {
     return -1;
   }
   if (!PyCallable_Check(self->rx)) {
     PyErr_SetString(PyExc_TypeError, "rx must be callable");
     return -1;
   }
-  PYMEMIF_LOG("init %s %ld %" PRIu32 " %d", socketName, socketNameLen, id, role);
+  PYMEMIF_LOG("init %s %ld %" PRIu32 " %d", socketName, socketNameLen, id, isServer);
 
   memif_socket_args_t sa = {0};
   strncpy(sa.path, socketName, sizeof(sa.path) - 1);
@@ -134,11 +142,11 @@ NativeMemif_init(NativeMemif* self, PyObject* args, PyObject* kwds) {
   }
 
   memif_conn_args_t ca = {0};
-  ca.is_master = role;
+  ca.is_master = isServer;
   ca.socket = self->sock;
   ca.interface_id = id;
-  ca.buffer_size = PYMEMIF_DATAROOM;
-  ca.log2_ring_size = PYMEMIF_RING_CAPACITY_LOG2;
+  ca.buffer_size = self->dataroom;
+  ca.log2_ring_size = ringSizeLog2;
   err = memif_create(&self->conn, &ca, NativeMemif_handleConnect, NativeMemif_handleDisconnect,
                      NativeMemif_handleInterrupt, self);
   if (err != MEMIF_ERR_SUCCESS) {
@@ -182,23 +190,27 @@ NativeMemif_send(NativeMemif* self, PyObject* args) {
   if (!PyArg_ParseTuple(args, "y#", &pkt, &pktLen)) {
     return NULL;
   }
-  PYMEMIF_LOG("send %ld", pktLen);
+  if (pktLen >= PYMEMIF_TX_SEGS * self->dataroom) {
+    PYMEMIF_LOG("TX %ld too-long", pktLen);
+    Py_RETURN_FALSE;
+  }
+  PYMEMIF_LOG("TX %ld", pktLen);
 
-  memif_buffer_t b = {0};
+  memif_buffer_t b[PYMEMIF_TX_SEGS];
   uint16_t nAlloc = 0;
-  int err = memif_buffer_alloc(self->conn, 0, &b, 1, &nAlloc, pktLen);
-  if (err != MEMIF_ERR_SUCCESS || nAlloc != 1) {
+  int err = memif_buffer_alloc(self->conn, 0, b, 1, &nAlloc, pktLen);
+  if (err != MEMIF_ERR_SUCCESS) {
     PYMEMIF_LOG_ERR(memif_buffer_alloc);
     Py_RETURN_FALSE;
   }
 
-  assert(b.len >= pktLen);
-  assert((b.flags & MEMIF_BUFFER_FLAG_NEXT) == 0);
-  memcpy(b.data, pkt, pktLen);
-  b.len = pktLen;
+  for (uint16_t i = 0; i < nAlloc; ++i) {
+    memcpy(b[i].data, pkt, b[i].len);
+    pkt += b[i].len;
+  }
 
   uint16_t nTx = 0;
-  err = memif_tx_burst(self->conn, 0, &b, 1, &nTx);
+  err = memif_tx_burst(self->conn, 0, b, nAlloc, &nTx);
   if (err != MEMIF_ERR_SUCCESS || nTx != 1) {
     PYMEMIF_LOG_ERR(memif_tx_burst);
     Py_RETURN_FALSE;

@@ -1,6 +1,6 @@
 # Shared Memory Packet Interface (memif) for Node.js
 
-This package is a Python C extension of [libmemif](https://s3-docs.fd.io/vpp/23.02/interfacing/libmemif/), which provides high performance packet transmit and receive between Python and VPP/DPDK applications.
+This package is a Python C extension of [libmemif](https://s3-docs.fd.io/vpp/23.06/interfacing/libmemif/), which provides high performance packet transmit and receive between Python and VPP/DPDK applications.
 It works on Linux only and requires libmemif 4.0 installed at `/usr/local/lib/libmemif.so`.
 
 ## Installation
@@ -22,32 +22,34 @@ pip install ~/python-memif
 ## API
 
 ```py
+from typing import Callable
+
+RxCallback = Callable[[bytes, bool], None]
+
+
 class NativeMemif:
-  def __init__(self, socketName: str, id: int, isServer: bool, rx: Callback[[bytes], None]):
-    """
-    Construct a memif socket.
-    dataroom is hardcoded to 2048.
-    ringSize is hardcoded to 1<<10.
-    """
-    pass
+    def __init__(self, socket_name: str, id: int, rx: RxCallback,
+                 *, is_server=False, dataroom=2048, ring_size_log2=10):
+        """
+        Construct a memif socket.
+        """
+        pass
 
-  def poll(self) -> None:
-    """
-    This should be invoked periodically to process I/O events.
-    """
-    pass
+    def poll(self) -> None:
+        """
+        This should be invoked periodically to process I/O events.
+        """
+        pass
 
-  def send(self, b: bytes) -> bool:
-    """
-    Transmit a packet.
-    Packet length must not exceed dataroom.
-    """
-    pass
+    def send(self, b: bytes) -> bool:
+        """
+        Transmit a packet.
+        """
+        pass
 
-  def close(self) -> None:
-    """
-    Close the memif socket.
-    """
-    pass
-
+    def close(self) -> None:
+        """
+        Close the memif socket.
+        """
+        pass
 ```
