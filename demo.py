@@ -3,7 +3,7 @@ import sys
 import time
 
 spec = importlib.util.spec_from_file_location(
-    "memif", "./build/lib.linux-x86_64-cpython-39/memif.cpython-39-x86_64-linux-gnu.so")
+    "memif", "./build/lib.linux-x86_64-cpython-310/memif.cpython-310-x86_64-linux-gnu.so")
 memif = importlib.util.module_from_spec(spec)
 
 

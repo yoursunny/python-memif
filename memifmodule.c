@@ -15,18 +15,16 @@
 #define PYMEMIF_RING_CAPACITY_LOG2 10
 #define PYMEMIF_RX_BURST 16
 
-typedef struct
-{
-  PyObject_HEAD //
-    memif_socket_handle_t sock;
+typedef struct {
+  PyObject_HEAD
+  memif_socket_handle_t sock;
   memif_conn_handle_t conn;
   PyObject* rx;
   bool isUp;
 } NativeMemif;
 
 int
-NativeMemif_handleConnect(memif_conn_handle_t conn, void* self0)
-{
+NativeMemif_handleConnect(memif_conn_handle_t conn, void* self0) {
   NativeMemif* self = self0;
   PYMEMIF_LOG("handleConnnect");
   assert(self->conn == conn);
@@ -40,8 +38,7 @@ NativeMemif_handleConnect(memif_conn_handle_t conn, void* self0)
 }
 
 int
-NativeMemif_handleDisconnect(memif_conn_handle_t conn, void* self0)
-{
+NativeMemif_handleDisconnect(memif_conn_handle_t conn, void* self0) {
   NativeMemif* self = self0;
   PYMEMIF_LOG("handleDisconnnect");
   assert(self->conn == conn);
@@ -50,8 +47,7 @@ NativeMemif_handleDisconnect(memif_conn_handle_t conn, void* self0)
 };
 
 int
-NativeMemif_handleInterrupt(memif_conn_handle_t conn, void* self0, uint16_t qid)
-{
+NativeMemif_handleInterrupt(memif_conn_handle_t conn, void* self0, uint16_t qid) {
   NativeMemif* self = self0;
   PYMEMIF_LOG("handleInterrupt %" PRIu16, qid);
   assert(self->conn == conn);
@@ -80,8 +76,7 @@ NativeMemif_handleInterrupt(memif_conn_handle_t conn, void* self0, uint16_t qid)
 }
 
 void
-NativeMemif_doStop(NativeMemif* self)
-{
+NativeMemif_doStop(NativeMemif* self) {
   self->isUp = false;
 
   if (self->conn != NULL) {
@@ -104,8 +99,7 @@ NativeMemif_doStop(NativeMemif* self)
 }
 
 static PyObject*
-NativeMemif_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
-{
+NativeMemif_new(PyTypeObject* type, PyObject* args, PyObject* kwds) {
   NativeMemif* self = (NativeMemif*)type->tp_alloc(type, 0);
   if (self == NULL) {
     return NULL;
@@ -115,8 +109,7 @@ NativeMemif_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
 }
 
 static int
-NativeMemif_init(NativeMemif* self, PyObject* args, PyObject* kwds)
-{
+NativeMemif_init(NativeMemif* self, PyObject* args, PyObject* kwds) {
   const char* socketName = NULL;
   Py_ssize_t socketNameLen = 0;
   static_assert(sizeof(unsigned int) == sizeof(uint32_t), "");
@@ -131,7 +124,7 @@ NativeMemif_init(NativeMemif* self, PyObject* args, PyObject* kwds)
   }
   PYMEMIF_LOG("init %s %ld %" PRIu32 " %d", socketName, socketNameLen, id, role);
 
-  memif_socket_args_t sa = { 0 };
+  memif_socket_args_t sa = {0};
   strncpy(sa.path, socketName, sizeof(sa.path) - 1);
   strncpy(sa.app_name, "python-memif", sizeof(sa.app_name) - 1);
   int err = memif_create_socket(&self->sock, &sa, self);
@@ -140,7 +133,7 @@ NativeMemif_init(NativeMemif* self, PyObject* args, PyObject* kwds)
     return -1;
   }
 
-  memif_conn_args_t ca = { 0 };
+  memif_conn_args_t ca = {0};
   ca.is_master = role;
   ca.socket = self->sock;
   ca.interface_id = id;
@@ -158,8 +151,7 @@ NativeMemif_init(NativeMemif* self, PyObject* args, PyObject* kwds)
 }
 
 static void
-NativeMemif_dealloc(NativeMemif* self)
-{
+NativeMemif_dealloc(NativeMemif* self) {
   PYMEMIF_LOG("dealloc");
   NativeMemif_doStop(self);
   Py_DECREF(self->rx);
@@ -167,8 +159,7 @@ NativeMemif_dealloc(NativeMemif* self)
 }
 
 static PyObject*
-NativeMemif_poll(NativeMemif* self, PyObject* Py_UNUSED(ignored))
-{
+NativeMemif_poll(NativeMemif* self, PyObject* Py_UNUSED(ignored)) {
   if (self->sock == NULL) {
     Py_RETURN_NONE;
   }
@@ -181,8 +172,7 @@ NativeMemif_poll(NativeMemif* self, PyObject* Py_UNUSED(ignored))
 }
 
 static PyObject*
-NativeMemif_send(NativeMemif* self, PyObject* args)
-{
+NativeMemif_send(NativeMemif* self, PyObject* args) {
   if (!self->isUp) {
     Py_RETURN_FALSE;
   }
@@ -194,7 +184,7 @@ NativeMemif_send(NativeMemif* self, PyObject* args)
   }
   PYMEMIF_LOG("send %ld", pktLen);
 
-  memif_buffer_t b = { 0 };
+  memif_buffer_t b = {0};
   uint16_t nAlloc = 0;
   int err = memif_buffer_alloc(self->conn, 0, &b, 1, &nAlloc, pktLen);
   if (err != MEMIF_ERR_SUCCESS || nAlloc != 1) {
@@ -217,18 +207,17 @@ NativeMemif_send(NativeMemif* self, PyObject* args)
 }
 
 static PyObject*
-NativeMemif_close(NativeMemif* self, PyObject* Py_UNUSED(ignored))
-{
+NativeMemif_close(NativeMemif* self, PyObject* Py_UNUSED(ignored)) {
   PYMEMIF_LOG("close");
   NativeMemif_doStop(self);
   Py_RETURN_NONE;
 }
 
 static PyMethodDef NativeMemif_methods[] = {
-  { "poll", (PyCFunction)NativeMemif_poll, METH_NOARGS, "" },
-  { "send", (PyCFunction)NativeMemif_send, METH_VARARGS, "" },
-  { "close", (PyCFunction)NativeMemif_close, METH_NOARGS, "" },
-  { 0 },
+  {"poll", (PyCFunction)NativeMemif_poll, METH_NOARGS, ""},
+  {"send", (PyCFunction)NativeMemif_send, METH_VARARGS, ""},
+  {"close", (PyCFunction)NativeMemif_close, METH_NOARGS, ""},
+  {0},
 };
 
 static PyTypeObject NativeMemifType = {
@@ -249,8 +238,7 @@ static PyModuleDef memif = {
 };
 
 PyMODINIT_FUNC
-PyInit_memif()
-{
+PyInit_memif() {
   if (PyType_Ready(&NativeMemifType) < 0) {
     return NULL;
   }

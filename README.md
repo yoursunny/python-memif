@@ -7,11 +7,13 @@ It works on Linux only and requires libmemif 4.0 installed at `/usr/local/lib/li
 
 ```bash
 git clone https://github.com/FDio/vpp.git
-git -C vpp checkout v23.02
-mkdir libmemif-build && cd libmemif-build
-cmake -G Ninja ../vpp/extras/libmemif
+cd vpp
+git checkout v23.06
+mkdir -p lib/libmemif-build && cd lib/libmemif-build
+cmake -G Ninja ../../extras/libmemif
 ninja
 sudo ninja install
+sudo ldconfig
 
 : cd to the virtual environment where you want to install this extension
 pip install ~/python-memif
