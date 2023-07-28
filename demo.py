@@ -22,8 +22,7 @@ for i in range(1000):
     m.poll()
     time.sleep(0.1)
     if i % 10 == 0:
-        print(f"up={m.up}")
-    if i % 10 == 0:
+        print(f"up={m.up} counts={m.counters}")
         try:
             m.send(bytes([i % 256] * i))
         except BrokenPipeError:

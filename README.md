@@ -42,6 +42,13 @@ class NativeMemif:
         """
         pass
 
+    @property
+    def counters(self) -> tuple[int, int, int, int, int]:
+        """
+        Return counters.
+        """
+        pass
+
     def poll(self) -> None:
         """
         This should be invoked periodically to process I/O events.

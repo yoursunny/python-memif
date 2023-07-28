@@ -15,11 +15,16 @@ typedef struct {
   memif_socket_handle_t sock;
   memif_conn_handle_t conn;
   PyObject* rx;
+  uint64_t nRxPackets;
+  uint64_t nRxFragments;
+  uint64_t nTxPackets;
+  uint64_t nTxFragments;
+  uint64_t nTxDropped;
   uint32_t dataroom;
   bool isUp;
 } NativeMemif;
 
-int
+static int
 NativeMemif_handleConnect(memif_conn_handle_t conn, void* self0) {
   NativeMemif* self = self0;
   assert(self->conn == conn);
@@ -32,7 +37,7 @@ NativeMemif_handleConnect(memif_conn_handle_t conn, void* self0) {
   return 0;
 }
 
-int
+static int
 NativeMemif_handleDisconnect(memif_conn_handle_t conn, void* self0) {
   NativeMemif* self = self0;
   assert(self->conn == conn);
@@ -40,7 +45,7 @@ NativeMemif_handleDisconnect(memif_conn_handle_t conn, void* self0) {
   return 0;
 };
 
-int
+static int
 NativeMemif_handleInterrupt(memif_conn_handle_t conn, void* self0, uint16_t qid) {
   NativeMemif* self = self0;
   assert(self->conn == conn);
@@ -59,6 +64,10 @@ NativeMemif_handleInterrupt(memif_conn_handle_t conn, void* self0, uint16_t qid)
     PyObject* args = Py_BuildValue("(y#O)", b->data, b->len, PyBool_FromLong(hasNext));
     PyObject_CallObject(self->rx, args);
     Py_DECREF(args);
+    if (!hasNext) {
+      ++self->nRxPackets;
+    }
+    ++self->nRxFragments;
   }
 
   err = memif_refill_queue(conn, qid, nRx, 0);
@@ -68,7 +77,7 @@ NativeMemif_handleInterrupt(memif_conn_handle_t conn, void* self0, uint16_t qid)
   return 0;
 }
 
-void
+static void
 NativeMemif_doStop(NativeMemif* self) {
   self->isUp = false;
 
@@ -89,15 +98,6 @@ NativeMemif_doStop(NativeMemif* self) {
       self->sock = NULL;
     }
   }
-}
-
-static PyObject*
-NativeMemif_new(PyTypeObject* type, PyObject* args, PyObject* kwds) {
-  NativeMemif* self = (NativeMemif*)type->tp_alloc(type, 0);
-  if (self == NULL) {
-    return NULL;
-  }
-  return (PyObject*)self;
 }
 
 static int
@@ -177,6 +177,7 @@ NativeMemif_poll(NativeMemif* self, PyObject* Py_UNUSED(ignored)) {
 static PyObject*
 NativeMemif_send(NativeMemif* self, PyObject* const* args, Py_ssize_t nargs) {
   if (!self->isUp) {
+    ++self->nTxDropped;
     return PyErr_Format(PyExc_BrokenPipeError, "interface is not up");
   }
 
@@ -186,6 +187,7 @@ NativeMemif_send(NativeMemif* self, PyObject* const* args, Py_ssize_t nargs) {
     return PyErr_Format(PyExc_TypeError, "expect bytes argument");
   }
   if (pktLen >= PYMEMIF_TX_SEGS * self->dataroom) {
+    ++self->nTxDropped;
     return PyErr_Format(PyExc_OverflowError, "packet too long");
   }
 
@@ -193,6 +195,7 @@ NativeMemif_send(NativeMemif* self, PyObject* const* args, Py_ssize_t nargs) {
   uint16_t nAlloc = 0;
   int err = memif_buffer_alloc(self->conn, 0, b, 1, &nAlloc, pktLen);
   if (err != MEMIF_ERR_SUCCESS) {
+    ++self->nTxDropped;
     return PYMEMIF_THROW_MEMIF_ERR(memif_buffer_alloc);
   }
 
@@ -204,8 +207,11 @@ NativeMemif_send(NativeMemif* self, PyObject* const* args, Py_ssize_t nargs) {
   uint16_t nTx = 0;
   err = memif_tx_burst(self->conn, 0, b, nAlloc, &nTx);
   if (err != MEMIF_ERR_SUCCESS) {
+    ++self->nTxDropped;
     return PYMEMIF_THROW_MEMIF_ERR(memif_tx_burst);
   }
+  ++self->nTxPackets;
+  self->nTxFragments += nAlloc;
   Py_RETURN_NONE;
 }
 
@@ -220,6 +226,13 @@ NativeMemif_isUp(NativeMemif* self, void* Py_UNUSED(ignored)) {
   return PyBool_FromLong(self->isUp);
 }
 
+static PyObject*
+NativeMemif_counters(NativeMemif* self, void* Py_UNUSED(ignored)) {
+  static_assert(sizeof(unsigned long long) == sizeof(uint64_t), "");
+  return Py_BuildValue("(KKKKK)", self->nRxPackets, self->nRxFragments, self->nTxPackets,
+                       self->nTxFragments, self->nTxDropped);
+}
+
 static PyMethodDef NativeMemif_methods[] = {
   {"poll", (PyCFunction)NativeMemif_poll, METH_NOARGS, ""},
   {"send", (PyCFunction)NativeMemif_send, METH_FASTCALL, ""},
@@ -229,6 +242,7 @@ static PyMethodDef NativeMemif_methods[] = {
 
 static PyGetSetDef NativeMemif_getset[] = {
   {"up", (getter)NativeMemif_isUp, NULL, "", NULL},
+  {"counters", (getter)NativeMemif_counters, NULL, "", NULL},
   {0},
 };
 
@@ -237,7 +251,7 @@ static PyTypeObject NativeMemifType = {
     .tp_name = "memif.NativeMemif",
   .tp_basicsize = sizeof(NativeMemif),
   .tp_flags = Py_TPFLAGS_DEFAULT,
-  .tp_new = NativeMemif_new,
+  .tp_new = PyType_GenericNew,
   .tp_init = (initproc)NativeMemif_init,
   .tp_dealloc = (destructor)NativeMemif_dealloc,
   .tp_methods = NativeMemif_methods,
